@@ -724,8 +724,30 @@ def show_dashboard():
             st.markdown(f"""
             <div class="topic-card">
                 <div class="topic-title">{topic['topic_name']}</div>
-                <div class="topic-date">Started: {topic['date_created'].strftime('%Y-%m-%d')}</div>
-            </div>
+                date_created = topic.get('date_created')
+                if isinstance(date_created, str):
+                    try:
+                        # Try ISO format first
+                        date_obj = datetime.fromisoformat(date_created)
+                    except ValueError:
+                        try:
+                            # Common fallback format
+                            date_obj = datetime.strptime(date_created, "%Y-%m-%d %H:%M:%S")
+                        except ValueError:
+                            # If nothing works, skip displaying the date
+                            date_obj = None
+                elif isinstance(date_created, datetime):
+                    date_obj = date_created
+                else:
+                    date_obj = None
+                
+                date_display = date_obj.strftime('%Y-%m-%d') if date_obj else "Unknown"
+                
+                html_block = f"""
+                <div class="topic-date">Started: {date_display}</div>
+                """
+                st.markdown(html_block, unsafe_allow_html=True)
+                            </div>
             """, unsafe_allow_html=True)
             
             # Topic-Specific Progress
