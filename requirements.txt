@@ -8,3 +8,4 @@ python-dotenv
 PyPDF2
 plotly
 langchain==0.2.12
+PyMuPDF
