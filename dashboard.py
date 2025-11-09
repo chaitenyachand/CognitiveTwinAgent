@@ -1,14 +1,4 @@
-# dashboard.py
 import streamlit as st
-import os
-import sys # <-- IMPORTED SYS
-from datetime import datetime
-# --- Robust Import Logic ---
-# Add the project's root directory (where app.py is) to the Python path
-# This ensures that all module imports (utils, auth, etc.) work reliably
-project_root = os.path.dirname(os.path.abspath(__file__))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
 import database_utils as db
 import generative_ai
 import plotly.graph_objects as go
@@ -237,12 +227,7 @@ def show_dashboard():
     streak_days = 0
     if quiz_history:
         # Count consecutive days with activity
-        activity_dates = sorted([
-            datetime.fromisoformat(q['date_taken']).date()
-            if isinstance(q['date_taken'], str)
-            else q['date_taken'].date()
-            for q in quiz_history
-        ], reverse=True)
+        activity_dates = sorted([q['date_taken'].date() for q in quiz_history], reverse=True)
         current_date = today
         for date in activity_dates:
             if date == current_date or date == current_date - timedelta(days=1):
@@ -290,16 +275,7 @@ def show_dashboard():
         activity_dates = {}
         if quiz_history:
             for quiz in quiz_history:
-                if isinstance(quiz['date_taken'], str):
-                    try:
-                        date_obj = datetime.fromisoformat(quiz['date_taken'])
-                    except ValueError:
-                        # fallback if string isn't ISO-formatted
-                        date_obj = datetime.strptime(quiz['date_taken'], "%Y-%m-%d %H:%M:%S")
-                else:
-                    date_obj = quiz['date_taken']
-                
-                date_key = date_obj.strftime('%Y-%m-%d')
+                date_key = quiz['date_taken'].strftime('%Y-%m-%d')
                 activity_dates[date_key] = activity_dates.get(date_key, 0) + 1
 
         # Calculate date range - from January 1st to December 31st of current year
@@ -706,20 +682,7 @@ def show_dashboard():
             st.markdown(f"""
             <div class="topic-card">
                 <div class="topic-title">{topic['topic_name']}</div>
-                date_value = topic.get('date_created')
-                if isinstance(date_value, str):
-                    try:
-                        date_obj = datetime.fromisoformat(date_value)
-                    except ValueError:
-                        date_obj = datetime.strptime(date_value, "%Y-%m-%d %H:%M:%S")
-                else:
-                    date_obj = date_value
-                
-                date_str = date_obj.strftime('%Y-%m-%d')
-                
-                topic_html = ( f"""
-                <div class="topic-date">Started: {date_str}</div>
-                """, unsafe_allow_html=True)
+                <div class="topic-date">Started: {topic['date_created'].strftime('%Y-%m-%d')}</div>
             </div>
             """, unsafe_allow_html=True)
             
