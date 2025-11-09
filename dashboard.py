@@ -237,7 +237,12 @@ def show_dashboard():
     streak_days = 0
     if quiz_history:
         # Count consecutive days with activity
-        activity_dates = sorted([q['date_taken'].date() for q in quiz_history], reverse=True)
+        activity_dates = sorted([
+            datetime.fromisoformat(q['date_taken']).date()
+            if isinstance(q['date_taken'], str)
+            else q['date_taken'].date()
+            for q in quiz_history
+        ], reverse=True)
         current_date = today
         for date in activity_dates:
             if date == current_date or date == current_date - timedelta(days=1):
