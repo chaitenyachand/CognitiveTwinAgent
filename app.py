@@ -1,9 +1,17 @@
 # app.py
 import streamlit as st
 import base64
+
 import os
+import sys # <-- IMPORTED SYS
 import json
 
+# --- Robust Import Logic ---
+# Add the project's root directory (where app.py is) to the Python path
+# This ensures that all module imports (utils, auth, etc.) work reliably
+project_root = os.path.dirname(os.path.abspath(__file__))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
 # Import project modules
 import database_utils as db # Or import db
 import auth
