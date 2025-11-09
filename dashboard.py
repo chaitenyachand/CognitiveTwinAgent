@@ -724,32 +724,34 @@ def show_dashboard():
             st.markdown(f"""
             <div class="topic-card">
                 <div class="topic-title">{topic['topic_name']}</div>
-                date_created = topic.get('date_created')
+            """, unsafe_allow_html=True)
 
-                if isinstance(date_created, str):
+            # --- INTERMEDIATE PYTHON LOGIC ---
+            date_created = topic.get('date_created')
+            if isinstance(date_created, str):
+                try:
+                    # Try ISO format first
+                    date_obj = datetime.fromisoformat(date_created)
+                except ValueError:
                     try:
-                        # Try ISO format first
-                        date_obj = datetime.fromisoformat(date_created)
+                        # Common fallback format
+                        date_obj = datetime.strptime(date_created, "%Y-%m-%d %H:%M:%S")
                     except ValueError:
-                        try:
-                            # Common fallback format
-                            date_obj = datetime.strptime(date_created, "%Y-%m-%d %H:%M:%S")
-                        except ValueError:
-                            # If nothing works, skip displaying the date
-                            date_obj = None
-                elif isinstance(date_created, datetime):
-                    date_obj = date_created
-                else:
-                    date_obj = None
-                
-                # Safely format or fallback to "Unknown"
-                date_display = date_obj.strftime('%Y-%m-%d') if date_obj else "Unknown"
-                
-                # Render in Streamlit
-                html_block = f"""
+                        # If nothing works, skip displaying the date
+                        date_obj = None
+            elif isinstance(date_created, datetime):
+                date_obj = date_created
+            else:
+                date_obj = None
+            
+            # Safely format or fallback to "Unknown"
+            date_display = date_obj.strftime('%Y-%m-%d') if date_obj else "Unknown"
+            # --------------------------------
+
+            # Topic Card Part 2 (Displaying the date and closing the divs if necessary)
+            st.markdown(f"""
                 <div class="topic-date">Started: {date_display}</div>
-                """
-                st.markdown(html_block, unsafe_allow_html=True)
+            </div> """, unsafe_allow_html=True)
             # Topic-Specific Progress
             col1, col2 = st.columns(2)
             
