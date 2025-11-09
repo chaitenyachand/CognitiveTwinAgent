@@ -227,7 +227,30 @@ def show_dashboard():
     streak_days = 0
     if quiz_history:
         # Count consecutive days with activity
-        activity_dates = sorted([q['date_taken'].date() for q in quiz_history], reverse=True)
+        activity_dates = []
+        for q in quiz_history:
+            date_value = q.get('date_taken')
+            if isinstance(date_value, str):
+                try:
+                    # Try parsing ISO format first
+                    date_obj = datetime.fromisoformat(date_value)
+                except ValueError:
+                    # Fallback to a common format if ISO fails
+                    try:
+                        date_obj = datetime.strptime(date_value, "%Y-%m-%d %H:%M:%S")
+                    except ValueError:
+                        # If parsing fails entirely, skip this entry
+                        continue
+            else:
+                date_obj = date_value
+        
+            # Only append valid dates
+            if date_obj:
+                activity_dates.append(date_obj.date())
+        
+        # Sort descending
+        activity_dates = sorted(activity_dates, reverse=True)
+
         current_date = today
         for date in activity_dates:
             if date == current_date or date == current_date - timedelta(days=1):
