@@ -706,7 +706,20 @@ def show_dashboard():
             st.markdown(f"""
             <div class="topic-card">
                 <div class="topic-title">{topic['topic_name']}</div>
-                <div class="topic-date">Started: {topic['date_created'].strftime('%Y-%m-%d')}</div>
+                date_value = topic.get('date_created')
+                if isinstance(date_value, str):
+                    try:
+                        date_obj = datetime.fromisoformat(date_value)
+                    except ValueError:
+                        date_obj = datetime.strptime(date_value, "%Y-%m-%d %H:%M:%S")
+                else:
+                    date_obj = date_value
+                
+                date_str = date_obj.strftime('%Y-%m-%d')
+                
+                topic_html = f"""
+                <div class="topic-date">Started: {date_str}</div>
+                """
             </div>
             """, unsafe_allow_html=True)
             
