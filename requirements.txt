@@ -1,5 +1,4 @@
 streamlit
-mysql-connector-python
 passlib[bcrypt]
 openai
 langchain-openai
