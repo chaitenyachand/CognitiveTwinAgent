@@ -1,0 +1,10 @@
+streamlit
+mysql-connector-python
+passlib[bcrypt]
+openai
+langchain
+langchain-openai
+pyvis
+python-dotenv
+PyPDF2
+plotly
