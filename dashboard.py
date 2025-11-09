@@ -290,7 +290,16 @@ def show_dashboard():
         activity_dates = {}
         if quiz_history:
             for quiz in quiz_history:
-                date_key = quiz['date_taken'].strftime('%Y-%m-%d')
+                if isinstance(quiz['date_taken'], str):
+                    try:
+                        date_obj = datetime.fromisoformat(quiz['date_taken'])
+                    except ValueError:
+                        # fallback if string isn't ISO-formatted
+                        date_obj = datetime.strptime(quiz['date_taken'], "%Y-%m-%d %H:%M:%S")
+                else:
+                    date_obj = quiz['date_taken']
+                
+                date_key = date_obj.strftime('%Y-%m-%d')
                 activity_dates[date_key] = activity_dates.get(date_key, 0) + 1
 
         # Calculate date range - from January 1st to December 31st of current year
