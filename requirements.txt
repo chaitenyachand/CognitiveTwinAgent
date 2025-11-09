@@ -9,4 +9,4 @@ plotly
 langchain==0.2.12
 PyMuPDF
 easyocr
-
+bcrypt
