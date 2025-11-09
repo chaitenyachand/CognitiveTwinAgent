@@ -717,9 +717,9 @@ def show_dashboard():
                 
                 date_str = date_obj.strftime('%Y-%m-%d')
                 
-                topic_html = f"""
+                topic_html = ( f"""
                 <div class="topic-date">Started: {date_str}</div>
-                """
+                """, unsafe_allow_html=True)
             </div>
             """, unsafe_allow_html=True)
             
