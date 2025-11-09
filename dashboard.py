@@ -725,6 +725,7 @@ def show_dashboard():
             <div class="topic-card">
                 <div class="topic-title">{topic['topic_name']}</div>
                 date_created = topic.get('date_created')
+
                 if isinstance(date_created, str):
                     try:
                         # Try ISO format first
@@ -741,15 +742,14 @@ def show_dashboard():
                 else:
                     date_obj = None
                 
+                # Safely format or fallback to "Unknown"
                 date_display = date_obj.strftime('%Y-%m-%d') if date_obj else "Unknown"
                 
+                # Render in Streamlit
                 html_block = f"""
                 <div class="topic-date">Started: {date_display}</div>
                 """
                 st.markdown(html_block, unsafe_allow_html=True)
-                            </div>
-            """, unsafe_allow_html=True)
-            
             # Topic-Specific Progress
             col1, col2 = st.columns(2)
             
