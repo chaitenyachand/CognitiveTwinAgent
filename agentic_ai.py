@@ -1,48 +1,45 @@
 # agentic_ai.py
 import os
-import sys # <-- IMPORTED SY
-
-# --- Robust Import Logic ---
-# Add the project's root directory (where app.py is) to the Python path
-# This ensures that all module imports (utils, auth, etc.) work reliably
-project_root = os.path.dirname(os.path.abspath(__file__))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+import sys
+import json
+import time
 import streamlit as st
 from langchain_openai import ChatOpenAI
 from langchain.agents import AgentExecutor, create_tool_calling_agent
 from langchain_core.prompts import ChatPromptTemplate
 from langchain.tools import tool
 from config import OPENAI_API_KEY
-import generative_ai # Import this
+import generative_ai  # Import this
 
-# --- NEW HELPER FUNCTION ---
+# --- Robust Import Logic ---
+project_root = os.path.dirname(os.path.abspath(__file__))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# =============================== EXISTING FUNCTIONALITY =============================== #
+
 def generate_focused_review_materials(original_context, weak_topics):
     """
     Generates summary, flashcards, and mindmap for a list of weak topics.
     This is a helper function that doesn't require an agent.
     """
     topics_str = ", ".join(weak_topics)
-    
-    # Generate a focused re-learning module
     prompt = f"""
     The student is struggling with these specific topics: {topics_str}.
     Using the original text provided below, generate a new, focused summary
     that specifically explains these weak topics in detail.
-    
+
     Original Text:
     {original_context}
     """
-    
+
     with st.spinner(f"Generating new summary for {topics_str}..."):
         focused_summary = generative_ai.generate_summary(prompt)
-    
+
     with st.spinner(f"Generating new flashcards for {topics_str}..."):
-        # Use the new, focused summary to generate flashcards
-        focused_flashcards = generative_ai.generate_flashcards(focused_summary) 
-    
+        focused_flashcards = generative_ai.generate_flashcards(focused_summary)
+
     with st.spinner(f"Generating new mind map for {topics_str}..."):
-        # Use the new, focused summary to generate the mindmap
         focused_mindmap = generative_ai.generate_mindmap_markdown(focused_summary)
 
     return {
@@ -50,7 +47,6 @@ def generate_focused_review_materials(original_context, weak_topics):
         "flashcards": focused_flashcards,
         "mindmap": focused_mindmap
     }
-# --- END NEW FUNCTION ---
 
 
 @tool
@@ -64,13 +60,11 @@ def review_weak_topics(weak_topics, original_context):
         "type": "review",
         "topics": topics_str
     }
-    
-    # --- MODIFIED ---
-    # Call the new helper function and store the materials
+
     st.session_state.focused_review = generate_focused_review_materials(original_context, weak_topics)
-    # --- END MODIFIED ---
-    
+
     return f"Generated a focused review module for: {topics_str}. Advise the student to study this new material and retake the quiz."
+
 
 @tool
 def start_new_topic(username):
@@ -84,22 +78,21 @@ def start_new_topic(username):
     }
     return f"Congratulated {username} and advised them to start a new topic."
 
-# --- Agent Setup ---
 
 def get_agent_executor():
     """Initializes the LangChain agent with tools and prompt."""
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0, api_key=OPENAI_API_KEY)
     tools = [review_weak_topics, start_new_topic]
-    
+
     prompt = ChatPromptTemplate.from_messages([
         ("system", """
         You are the 'Cognitive Twin Agent', a personalized learning assistant.
         Your job is to decide the student's next step based on their quiz performance.
-        
+
         You have two rules:
         1. If the score is below 70, you MUST use the 'review_weak_topics' tool.
         2. If the score is 70 or above, you MUST use the 'start_new_topic' tool.
-        
+
         You must call one, and only one, of the provided tools.
         """),
         ("user", """
@@ -110,27 +103,172 @@ def get_agent_executor():
         """),
         ("placeholder", "{agent_scratchpad}"),
     ])
-    
+
     agent = create_tool_calling_agent(llm, tools, prompt)
     agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
     return agent_executor
+
 
 def run_agent_analysis(username, score, weak_topics, original_context):
     """Runs the agent and returns its recommendation."""
     if 'agent_executor' not in st.session_state:
         st.session_state.agent_executor = get_agent_executor()
-        
+
     executor = st.session_state.agent_executor
-    
+
     with st.spinner("🧠 Cognitive Twin is analyzing your performance..."):
         try:
             result = executor.invoke({
                 "username": username,
                 "score": score,
-                "weak_topics": str(weak_topics), # Pass as string for robustness
+                "weak_topics": str(weak_topics),
                 "original_context": original_context
             })
             return result['output']
         except Exception as e:
             print(f"Error running agent: {e}")
             return "Error: Could not analyze results."
+
+# =============================== AGORA CONVERSATIONAL AI =============================== #
+
+# --- Helper: Call OpenAI directly ---
+def _call_openai(system_prompt, user_prompt, temperature=0.7, max_tokens=250):
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=temperature, api_key=OPENAI_API_KEY)
+    messages = [{"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}]
+    response = llm.invoke(messages)
+    return response.content.strip()
+
+
+# --- Step 1: Analyze student’s answer ---
+def analyze_answer(user_text, expected_concept):
+    """Analyzes user voice response and detects misconceptions."""
+    system_prompt = """
+    You are an expert learning evaluator.
+    Compare the student's short spoken answer to the expected concept.
+    Return JSON with:
+    - grade: 'correct', 'partial', or 'incorrect'
+    - confidence: 0.0–1.0
+    - misconceptions: list of short tags
+    - feedback: a one-sentence human-friendly explanation.
+    """
+    user_prompt = f"""
+    Student said: "{user_text}"
+    Expected concept: "{expected_concept}"
+
+    Return ONLY JSON.
+    Example:
+    {{
+        "grade": "partial",
+        "confidence": 0.6,
+        "misconceptions": ["router_vs_modem_confusion"],
+        "feedback": "You're close! A router connects multiple networks, not just to the internet."
+    }}
+    """
+    try:
+        raw = _call_openai(system_prompt, user_prompt, temperature=0.3)
+        start = raw.find("{")
+        end = raw.rfind("}") + 1
+        return json.loads(raw[start:end]) if start != -1 else {}
+    except Exception:
+        return {
+            "grade": "partial",
+            "confidence": 0.5,
+            "misconceptions": [],
+            "feedback": "Good try — let's explore that more deeply!"
+        }
+
+
+# --- Step 2: Generate Socratic response ---
+def socratic_response(user_text, context):
+    """
+    Main conversational AI loop used by Agora Conversational AI.
+    Adapts response dynamically based on user's last message.
+    """
+    topic = context.get("topic", "General Learning")
+    concept = context.get("current_concept", topic)
+    persona = context.get("persona", "neutral")
+
+    analysis = analyze_answer(user_text, concept)
+    grade = analysis.get("grade", "partial")
+    confidence = float(analysis.get("confidence", 0.5))
+    feedback = analysis.get("feedback", "")
+    misconceptions = analysis.get("misconceptions", [])
+
+    # --- Decide next conversational step ---
+    if grade == "correct" and confidence > 0.75:
+        action = "advance"
+        prompt = f"""
+        The student understood {concept} correctly.
+        Now ask one question that moves the discussion forward to a deeper idea
+        in {topic}. Keep it conversational and concise.
+        """
+    elif grade == "incorrect":
+        action = "explain"
+        prompt = f"""
+        The student misunderstood {concept}.
+        Briefly explain the correct idea in 2 sentences and then ask a simple follow-up question.
+        """
+    else:
+        action = "clarify"
+        prompt = f"""
+        The student's answer was partially correct.
+        Provide an encouraging correction and ask one guiding question.
+        """
+
+    system_prompt = "You are a kind, Socratic AI tutor engaging a student in natural voice conversation."
+    ai_text = _call_openai(system_prompt, prompt, temperature=0.8, max_tokens=150)
+
+    # --- Optionally add persona tone ---
+    ai_text = get_persona_response(persona, ai_text)
+
+    # --- Package metadata for DB logging ---
+    metadata = {
+        "grade": grade,
+        "confidence": confidence,
+        "misconceptions": misconceptions,
+        "feedback": feedback,
+        "action": action,
+        "timestamp": time.time()
+    }
+
+    return {
+        "reply_text": ai_text,
+        "action": action,
+        "metadata": metadata
+    }
+
+
+# --- Step 3: Persona Tuning ---
+def get_persona_response(persona, message):
+    """
+    Modulates AI tone/personality before sending it to Agora TTS.
+    """
+    persona_styles = {
+        "empathetic": lambda m: f"{m} (spoken softly, reassuring tone)",
+        "encouraging": lambda m: f"{m} You’re doing great — keep it up!",
+        "authoritative": lambda m: f"{m} Focus carefully on this part, it’s key to mastering the topic.",
+        "neutral": lambda m: m
+    }
+    return persona_styles.get(persona, persona_styles["neutral"])(message)
+
+
+# --- Step 4: Get Agora Conversational Agent (for integration) ---
+def get_agora_conversational_agent():
+    """
+    Returns a callable that integrates with Agora's STT/TTS loop.
+    Use this in your voice_twin.py for real-time interaction.
+    """
+    def handle_user_input(user_text, context):
+        """
+        Simulates one round-trip in Agora conversation.
+        (Agora STT provides user_text; this function returns ai_text + metadata)
+        """
+        result = socratic_response(user_text, context)
+        return {
+            "ai_reply": result["reply_text"],
+            "metadata": result["metadata"]
+        }
+
+    return handle_user_input
+
