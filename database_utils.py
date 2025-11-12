@@ -411,100 +411,9 @@ def get_user_progress(user_id):
         conn.close()
 
 
-# ---------------------- Agora Voice Functions ---------------------- #
+# Append to database_utils.py (after existing functions) — DO NOT replace, just append.
 
-def create_voice_session(user_id, topic_name):
-    """Start a new voice session."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute(
-            "INSERT INTO voice_sessions (user_id, topic_name) VALUES (?, ?)",
-            (user_id, topic_name)
-        )
-        conn.commit()
-        return cursor.lastrowid
-    except sqlite3.Error as e:
-        print(f"Error creating voice session: {e}")
-        conn.rollback()
-        return None
-    finally:
-        conn.close()
-
-
-def log_conversation(user_id, session_id, topic_name, user_text, ai_text, metadata):
-    """Logs one voice exchange (turn)."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            INSERT INTO voice_conversations (session_id, user_id, topic_name, user_text, ai_text, metadata)
-            VALUES (?, ?, ?, ?, ?, ?)
-        """, (session_id, user_id, topic_name, user_text, ai_text, json.dumps(metadata)))
-        conn.commit()
-        cursor.execute("UPDATE voice_sessions SET total_turns = total_turns + 1 WHERE session_id = ?", (session_id,))
-        conn.commit()
-    except sqlite3.Error as e:
-        print(f"Error logging conversation: {e}")
-        conn.rollback()
-    finally:
-        conn.close()
-
-
-def get_conversation_history(session_id):
-    """Retrieve all user-AI exchanges for a session."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT user_text, ai_text, metadata, timestamp
-            FROM voice_conversations
-            WHERE session_id = ?
-            ORDER BY timestamp ASC
-        """, (session_id,))
-        rows = cursor.fetchall()
-        return [dict(row) for row in rows]
-    finally:
-        conn.close()
-
-
-def end_voice_session(session_id, summary_data):
-    """Mark session end and update summary."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            UPDATE voice_sessions
-            SET end_time = CURRENT_TIMESTAMP, summary_json = ?
-            WHERE session_id = ?
-        """, (json.dumps(summary_data), session_id))
-        conn.commit()
-    except sqlite3.Error as e:
-        print(f"Error ending voice session: {e}")
-        conn.rollback()
-    finally:
-        conn.close()
-
-
-def get_voice_sessions_by_user(user_id):
-    """List all past voice tutoring sessions for a user."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    try:
-        cursor.execute("""
-            SELECT session_id, topic_name, start_time, end_time, total_turns, avg_confidence
-            FROM voice_sessions
-            WHERE user_id = ?
-            ORDER BY start_time DESC
-        """, (user_id,))
-        return [dict(row) for row in cursor.fetchall()]
-    finally:
-        conn.close()
-
-
-# database_utils.py  <-- append near end
-
-def create_voice_session(user_id, topic):
+def ensure_voice_tables():
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
@@ -514,15 +423,10 @@ def create_voice_session(user_id, topic):
                 user_id INTEGER,
                 topic TEXT,
                 started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                ended_at TIMESTAMP,
                 metadata TEXT
             );
         """)
-        cursor.execute("""
-            INSERT INTO voice_sessions (user_id, topic) VALUES (?, ?)
-        """, (user_id, topic))
-        session_id = cursor.lastrowid
-
-        # create conversation table if not exists
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS voice_conversations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -533,6 +437,34 @@ def create_voice_session(user_id, topic):
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS partial_transcripts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER,
+                user_id INTEGER,
+                topic TEXT,
+                partial_text TEXT,
+                ts REAL DEFAULT (strftime('%s','now'))
+            );
+        """)
+        conn.commit()
+    except Exception as e:
+        print("Error ensuring voice tables:", e)
+        conn.rollback()
+    finally:
+        conn.close()
+
+
+# Call ensure on import (safe; idempotent)
+ensure_voice_tables()
+
+
+def create_voice_session(user_id, topic):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO voice_sessions (user_id, topic) VALUES (?, ?)", (user_id, topic))
+        session_id = cursor.lastrowid
         conn.commit()
         return session_id
     except Exception as e:
@@ -543,18 +475,16 @@ def create_voice_session(user_id, topic):
         conn.close()
 
 
-def log_conversation(user_id, session_id, topic, user_text, ai_text, metadata=None):
+def log_conversation(session_id, role, text, metadata=None):
+    """
+    Generic single-row logger. role should be 'user' or 'assistant'.
+    (Note: earlier code inserted both user and assistant together; this function allows granular logging.)
+    """
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("""
-            INSERT INTO voice_conversations (session_id, role, text, metadata)
-            VALUES (?, ?, ?, ?)
-        """, (session_id, "user", user_text, json.dumps(metadata or {})))
-        cursor.execute("""
-            INSERT INTO voice_conversations (session_id, role, text, metadata)
-            VALUES (?, ?, ?, ?)
-        """, (session_id, "assistant", ai_text, json.dumps(metadata or {})))
+        cursor.execute("INSERT INTO voice_conversations (session_id, role, text, metadata) VALUES (?, ?, ?, ?)",
+                       (session_id, role, text, json.dumps(metadata or {})))
         conn.commit()
     except Exception as e:
         print("Error logging conversation:", e)
@@ -563,11 +493,51 @@ def log_conversation(user_id, session_id, topic, user_text, ai_text, metadata=No
         conn.close()
 
 
+def log_partial_transcript(user_id, session_id, topic, partial_text, ts=None):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("INSERT INTO partial_transcripts (session_id, user_id, topic, partial_text, ts) VALUES (?, ?, ?, ?, ?)",
+                       (session_id, user_id, topic, partial_text, ts or time.time()))
+        conn.commit()
+    except Exception as e:
+        print("Error logging partial transcript:", e)
+        conn.rollback()
+    finally:
+        conn.close()
+
+
+def get_recent_conversation(session_id, limit=8):
+    """
+    Return the last `limit` turns for session_id (ordered oldest -> newest).
+    Each entry: {role, text, timestamp}
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT role, text, timestamp FROM voice_conversations
+            WHERE session_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+        """, (session_id, limit))
+        rows = cursor.fetchall()
+        # return oldest -> newest
+        rows = list(reversed(rows))
+        return [dict(r) for r in rows]
+    except Exception as e:
+        print("Error fetching recent conversation:", e)
+        return []
+    finally:
+        conn.close()
+
+
 def end_voice_session(session_id, summary):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute("UPDATE voice_sessions SET metadata = ? WHERE session_id = ?", (json.dumps(summary), session_id))
+        cursor.execute("UPDATE voice_sessions SET ended_at = CURRENT_TIMESTAMP, metadata = ? WHERE session_id = ?",
+                       (json.dumps(summary), session_id))
         conn.commit()
     except Exception as e:
         print("Error ending voice session:", e)
