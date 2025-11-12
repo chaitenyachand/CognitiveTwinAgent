@@ -2,6 +2,7 @@
 import sqlite3
 import json
 import os
+from datetime import datetime
 
 DB_PATH = "cognitivetwin.db"
 
@@ -18,6 +19,7 @@ def create_tables():
     cursor = conn.cursor()
 
     queries = [
+        # ------------------ Core Cognitive Twin Tables ------------------
         """
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,6 +87,35 @@ def create_tables():
             weak_topics_list TEXT,
             FOREIGN KEY (user_id) REFERENCES users(user_id)
         );
+        """,
+
+        # ------------------ Agora Voice Tutor Tables ------------------
+        """
+        CREATE TABLE IF NOT EXISTS voice_sessions (
+            session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            topic_name TEXT NOT NULL,
+            start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            end_time TIMESTAMP,
+            total_turns INTEGER DEFAULT 0,
+            avg_confidence REAL DEFAULT 0.0,
+            summary_json TEXT,
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS voice_conversations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            topic_name TEXT,
+            user_text TEXT,
+            ai_text TEXT,
+            metadata JSON,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (session_id) REFERENCES voice_sessions(session_id),
+            FOREIGN KEY (user_id) REFERENCES users(user_id)
+        );
         """
     ]
 
@@ -92,7 +123,6 @@ def create_tables():
         cursor.execute(query)
     conn.commit()
     conn.close()
-
 
 # ---------------------- User Functions ---------------------- #
 
@@ -381,7 +411,98 @@ def get_user_progress(user_id):
         conn.close()
 
 
-# Automatically initialize tables if database doesn’t exist
+# ---------------------- Agora Voice Functions ---------------------- #
+
+def create_voice_session(user_id, topic_name):
+    """Start a new voice session."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute(
+            "INSERT INTO voice_sessions (user_id, topic_name) VALUES (?, ?)",
+            (user_id, topic_name)
+        )
+        conn.commit()
+        return cursor.lastrowid
+    except sqlite3.Error as e:
+        print(f"Error creating voice session: {e}")
+        conn.rollback()
+        return None
+    finally:
+        conn.close()
+
+
+def log_conversation(user_id, session_id, topic_name, user_text, ai_text, metadata):
+    """Logs one voice exchange (turn)."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO voice_conversations (session_id, user_id, topic_name, user_text, ai_text, metadata)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (session_id, user_id, topic_name, user_text, ai_text, json.dumps(metadata)))
+        conn.commit()
+        cursor.execute("UPDATE voice_sessions SET total_turns = total_turns + 1 WHERE session_id = ?", (session_id,))
+        conn.commit()
+    except sqlite3.Error as e:
+        print(f"Error logging conversation: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
+
+def get_conversation_history(session_id):
+    """Retrieve all user-AI exchanges for a session."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT user_text, ai_text, metadata, timestamp
+            FROM voice_conversations
+            WHERE session_id = ?
+            ORDER BY timestamp ASC
+        """, (session_id,))
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def end_voice_session(session_id, summary_data):
+    """Mark session end and update summary."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            UPDATE voice_sessions
+            SET end_time = CURRENT_TIMESTAMP, summary_json = ?
+            WHERE session_id = ?
+        """, (json.dumps(summary_data), session_id))
+        conn.commit()
+    except sqlite3.Error as e:
+        print(f"Error ending voice session: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
+
+def get_voice_sessions_by_user(user_id):
+    """List all past voice tutoring sessions for a user."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            SELECT session_id, topic_name, start_time, end_time, total_turns, avg_confidence
+            FROM voice_sessions
+            WHERE user_id = ?
+            ORDER BY start_time DESC
+        """, (user_id,))
+        return [dict(row) for row in cursor.fetchall()]
+    finally:
+        conn.close()
+
+
+# Auto-create tables on first run
 if not os.path.exists(DB_PATH):
     print("Creating new SQLite database and tables...")
-    create_tables()
+create_tables()
