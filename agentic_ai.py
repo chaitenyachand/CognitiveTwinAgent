@@ -347,3 +347,142 @@ def process_stt(user_id, session_id, topic, transcript, persona="empathetic"):
     except Exception as e:
         return {"ai_reply": "Sorry, I couldn't process that right now.", "metadata": {"error": str(e)}}
 
+# Append to agentic_ai.py (keep your existing functions unchanged above)
+
+import time
+import json
+import database_utils as db
+import generative_ai
+
+def _build_socratic_prompt(topic, transcript, recent_turns, persona="empathetic"):
+    """
+    Construct a concise, focused prompt for the LLM that asks it to:
+     - assess student's correctness
+     - return one concise feedback sentence
+     - return exactly one Socratic follow-up question
+     - provide a short analysis and suggested next objective
+     - return JSON only
+    """
+    recent = ""
+    if recent_turns:
+        recent_lines = []
+        for t in recent_turns:
+            role = t.get('role')
+            text = t.get('text')
+            recent_lines.append(f"{role.upper()}: {text}")
+        recent = "\n\nRecent turns:\n" + "\n".join(recent_lines)
+
+    prompt = f"""
+You are "Cognitive Twin", a Socratic tutor with persona "{persona}" teaching topic: {topic}.
+
+Student's latest spoken answer: "{transcript}"
+
+{recent}
+
+Your task:
+1) Assess the student's answer briefly.
+2) Provide ONE concise feedback sentence (correct/partial/wrong + why).
+3) Ask ONE single Socratic question to lead the student towards the next objective.
+4) Provide a short analysis explaining what misconception (if any) was present.
+5) Suggest a next learning objective (a short phrase).
+
+Return a VALID JSON object only (no additional text) with these keys:
+{{ "type": <one of 'question'|'explain'|'review'>,
+  "ai_reply": "<voice-friendly text the tutor should speak>",
+  "analysis": "<short analysis>",
+  "next_objective": "<short phrase>" }}
+Make ai_reply short (1-2 sentences) and the Socratic question must be included within ai_reply.
+"""
+
+    return prompt
+
+
+def process_stt(user_id, session_id, topic, transcript, persona="empathetic", partial=False):
+    """
+    Handle one STT turn from the frontend (may be partial or final).
+    Returns structured dict: { ai_reply, metadata, structured }
+    - structured: {type, next_objective, ai_reply, analysis}
+    """
+    try:
+        # 1) store partial transcripts if flagged (non-blocking)
+        if partial:
+            try:
+                db.log_partial_transcript(user_id, session_id, topic, transcript, time.time())
+            except Exception:
+                pass  # don't fail on logging
+
+        # 2) fetch recent conversation for short-term memory
+        recent = []
+        if session_id:
+            try:
+                recent = db.get_recent_conversation(session_id, limit=8)
+            except Exception:
+                recent = []
+
+        # 3) Build the Socratic prompt
+        prompt = _build_socratic_prompt(topic, transcript, recent, persona=persona)
+
+        # 4) Call generative_ai for structured JSON reply
+        structured = None
+        ai_reply = "Sorry, I couldn't respond right now."
+        metadata = {}
+        try:
+            # Prefer a structured response helper - implement this in generative_ai for reliability
+            if hasattr(generative_ai, "generate_chat_response_structured"):
+                structured = generative_ai.generate_chat_response_structured(prompt)
+            elif hasattr(generative_ai, "generate_chat_response"):
+                # second-choice: returns JSON string or dict
+                out = generative_ai.generate_chat_response(prompt)
+                if isinstance(out, dict):
+                    structured = out
+                else:
+                    # attempt to parse JSON
+                    try:
+                        structured = json.loads(out)
+                    except Exception:
+                        structured = None
+            else:
+                # fallback: use a generic call (you must implement generative_ai.simple_chat)
+                out = generative_ai.simple_chat(prompt)
+                try:
+                    structured = json.loads(out)
+                except Exception:
+                    structured = None
+        except Exception as e:
+            # fallback minimal reply
+            structured = None
+            metadata['call_error'] = str(e)
+
+        # 5) Normalize structured result
+        if structured and isinstance(structured, dict):
+            ai_reply = structured.get("ai_reply") or structured.get("reply") or ""
+            metadata['analysis'] = structured.get("analysis", structured.get("analysis", ""))
+        else:
+            # if we didn't get structured JSON, ask the LLM to summarize in plain text
+            if isinstance(structured, str):
+                ai_reply = structured
+            else:
+                ai_reply = "Thanks — can you say a little more about that?"
+            metadata['note'] = "Unstructured response from generative_ai"
+
+        # 6) Log the user turn and assistant reply into DB
+        try:
+            if session_id:
+                db.log_conversation(session_id, "user", transcript, {"partial": partial})
+                db.log_conversation(session_id, "assistant", ai_reply, metadata)
+        except Exception:
+            pass
+
+        # 7) Return structured payload
+        return {
+            "ai_reply": ai_reply,
+            "metadata": metadata,
+            "structured": structured or {
+                "type": "question",
+                "next_objective": (structured.get("next_objective") if isinstance(structured, dict) else ""),
+                "ai_reply": ai_reply,
+                "analysis": metadata.get('analysis', '')
+            }
+        }
+    except Exception as e:
+        return {"ai_reply": "Sorry, something went wrong processing that turn.", "metadata": {"error": str(e)}, "structured": {}}
