@@ -1,5 +1,5 @@
 # app.py
-import streamlit as st
+''' import streamlit as st
 import base64
 
 import os
@@ -1079,6 +1079,279 @@ def main():
             process_new_topic()
         elif st.session_state.page == "quiz_results":
             show_quiz_results_page()
+
+if __name__ == "__main__":
+    main()
+'''
+
+# app.py
+
+import streamlit as st
+import base64
+import os
+import sys
+import json
+
+# --- Robust Import Logic ---
+project_root = os.path.dirname(os.path.abspath(__file__))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+# --- Import Project Modules ---
+import database_utils as db
+import auth
+import generative_ai
+import agentic_ai
+import quiz_module
+import dashboard
+import utils
+from config import OPENAI_API_KEY
+from agora_voice import start_voice_chat  # ✅ Agora Integration
+
+# --- Streamlit Page Config ---
+st.set_page_config(page_title="Cognitive Twin Agent", page_icon="🧠", layout="wide")
+
+# --- Initialize Session State ---
+def init_session_state():
+    defaults = {
+        "logged_in": False,
+        "user_id": None,
+        "username": None,
+        "page": "login",
+        "current_topic_text": None,
+        "current_topic_id": None,
+        "current_summary": None,
+        "current_mindmap": None,
+        "current_flashcards": None,
+        "current_formula_sheet": None,
+        "current_quiz": None,
+        "user_answers": [],
+        "latest_score": 0,
+        "latest_weak_areas": [],
+        "agent_recommendation": None,
+        "focused_review": None,
+        "view_topic": None,
+        "view_content_type": None,
+        "current_topic_name_to_review": None,
+        "topic_chat_history": [],
+        "topic_name": None,
+        "source_type": None,
+        "default_tab": 0
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+# --- Custom Theme ---
+def set_custom_theme():
+    st.markdown("""
+    <style>
+    html, body, [class*="st-"] {
+        font-family: 'Inter', sans-serif;
+    }
+    [data-testid="stAppViewContainer"] {
+        background-color: #f5f1ed;
+    }
+    [data-testid="stSidebar"] {
+        background-color: #2d3748;
+        padding: 20px 10px;
+    }
+    [data-testid="stSidebar"] h1 {
+        color: #FFFFFF;
+        font-size: 1.4rem;
+        font-weight: 700;
+        padding: 10px;
+    }
+    [data-testid="stSidebar"] .stButton > button {
+        background-color: #3d4d60;
+        color: #FFFFFF;
+        border: none;
+        border-radius: 10px;
+        padding: 12px 20px;
+        font-weight: 500;
+        width: 100%;
+        margin-bottom: 8px;
+        transition: all 0.3s ease;
+    }
+    [data-testid="stSidebar"] .stButton > button:hover {
+        background-color: #4a5a70;
+        transform: translateX(5px);
+    }
+    [data-testid="stSidebar"] .stButton > button[kind="primary"] {
+        background-color: #5b6fd8;
+    }
+    [data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
+        background-color: #4a5bc4;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- Login Page ---
+def get_base64_of_bin_file(bin_file):
+    with open(bin_file, 'rb') as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
+
+def set_bg_from_local(image_file):
+    if not os.path.exists(image_file):
+        st.warning(f"⚠️ Background image '{image_file}' not found.")
+        return
+    bin_str = get_base64_of_bin_file(image_file)
+    page_bg_img = f"""
+    <style>
+    [data-testid="stAppViewContainer"] {{
+        background-image: url("data:image/png;base64,{bin_str}");
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+    }}
+    [data-testid="stHeader"] {{background: rgba(0,0,0,0);}}
+    </style>
+    """
+    st.markdown(page_bg_img, unsafe_allow_html=True)
+
+def show_login_page():
+    st.markdown("<h1 style='text-align:center;'>🧠 Cognitive Twin</h1>", unsafe_allow_html=True)
+    tab1, tab2 = st.tabs(["Login", "Register"])
+
+    with tab1:
+        with st.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submitted = st.form_submit_button("Login")
+            if submitted:
+                success, user = auth.login_user(username, password)
+                if success:
+                    st.session_state.logged_in = True
+                    st.session_state.user_id = user['user_id']
+                    st.session_state.username = user['username']
+                    st.session_state.page = "dashboard"
+                    st.success("Login successful!")
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials.")
+
+    with tab2:
+        with st.form("register_form"):
+            new_username = st.text_input("Username")
+            new_email = st.text_input("Email")
+            new_password = st.text_input("Password", type="password")
+            confirm_password = st.text_input("Confirm Password", type="password")
+            submitted = st.form_submit_button("Register")
+            if submitted:
+                if new_password != confirm_password:
+                    st.error("Passwords do not match.")
+                else:
+                    success, message = auth.register_user(new_username, new_email, new_password)
+                    if success:
+                        st.success("Registration successful! Please log in.")
+                    else:
+                        st.error(message)
+
+# --- Onboarding Flow ---
+def show_onboarding_flow():
+    st.title("Start a New Learning Journey")
+    st.subheader("Step 1: Choose Your Topic")
+
+    input_type = st.radio(
+        "How do you want to provide the topic?",
+        ("Type a topic name", "Upload a PDF", "Choose from a list"),
+        horizontal=True
+    )
+
+    topic_name = ""
+    source_type = "text"
+    content = None
+    uploaded_file = None
+
+    if input_type == "Type a topic name":
+        topic_name = st.text_input("Enter your topic:")
+        if topic_name:
+            content = f"Provide a detailed overview of: {topic_name}"
+
+    elif input_type == "Upload a PDF":
+        uploaded_file = st.file_uploader("Upload your PDF", type="pdf")
+        if uploaded_file:
+            topic_name = uploaded_file.name
+            source_type = "pdf"
+
+    elif input_type == "Choose from a list":
+        topic_name = st.selectbox("Select topic:", ["", "AI", "Data Science", "Networking", "Blockchain"])
+        if topic_name:
+            content = f"Provide a detailed overview of: {topic_name}"
+
+    if st.button("Generate Learning Module", type="primary"):
+        if uploaded_file:
+            with st.spinner("Analyzing document..."):
+                content = utils.process_uploaded_file(uploaded_file, source_type)
+        if content:
+            st.session_state.current_topic_text = content
+            st.session_state.topic_name = topic_name
+            st.session_state.page = "onboarding_processing"
+            st.rerun()
+        else:
+            st.error("Could not extract content.")
+
+# --- Voice Chat Integration ---
+def show_voice_chat_page():
+    st.title("🎙️ Talk to Your Cognitive Twin")
+    st.info("Use your voice to have a natural conversation with your AI Twin.")
+    start_voice_chat()
+
+# --- Main App ---
+def main():
+    if "db_initialized" not in st.session_state:
+        db.create_tables()
+        st.session_state.db_initialized = True
+
+    init_session_state()
+
+    if not st.session_state.logged_in:
+        show_login_page()
+    else:
+        set_custom_theme()
+
+        with st.sidebar:
+            st.title(f"Welcome, {st.session_state.username}!")
+
+            def on_page_change():
+                st.session_state.view_topic = None
+                st.session_state.view_content_type = None
+
+            if st.button("Dashboard", on_click=on_page_change, use_container_width=True):
+                st.session_state.page = "dashboard"
+                st.rerun()
+
+            if st.button("Start New Topic", on_click=on_page_change, type="primary", use_container_width=True):
+                st.session_state.page = "onboarding_start"
+                st.rerun()
+
+            if st.button("Ask a General Question", on_click=on_page_change, use_container_width=True):
+                st.session_state.page = "general_qa"
+                st.rerun()
+
+            # ✅ New Voice Chat Button
+            if st.button("🎙️ Voice Chat with Cognitive Twin", on_click=on_page_change, use_container_width=True):
+                st.session_state.page = "voice_chat"
+                st.rerun()
+
+            st.divider()
+            if st.button("Logout", use_container_width=True):
+                for key in list(st.session_state.keys()):
+                    del st.session_state[key]
+                st.rerun()
+
+        # --- Main Page Routing ---
+        if st.session_state.page == "dashboard":
+            dashboard.show_dashboard()
+        elif st.session_state.page == "onboarding_start":
+            show_onboarding_flow()
+        elif st.session_state.page == "voice_chat":
+            show_voice_chat_page()
+        elif st.session_state.page == "general_qa":
+            st.write("🤖 Ask me anything general!")
+        else:
+            st.write("🧭 Page not found")
 
 if __name__ == "__main__":
     main()
