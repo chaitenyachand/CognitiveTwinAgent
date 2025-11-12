@@ -272,3 +272,78 @@ def get_agora_conversational_agent():
 
     return handle_user_input
 
+
+# --- existing code kept above unchanged ---
+# Add this new function for realtime transcript processing.
+
+def process_stt(user_id, session_id, topic, transcript, persona="empathetic"):
+    """
+    Handle one STT turn coming from the client.
+    - transcript: user's spoken text (string)
+    - persona: emotional tone for responses
+
+    Returns: { "ai_reply": str, "metadata": { ... } }
+    """
+
+    # 1) Build context the agent expects
+    context = {
+        "user_id": user_id,
+        "session_id": session_id,
+        "topic": topic,
+        "persona": persona,
+        "transcript": transcript,
+        "timestamp": time.time()
+    }
+
+    # 2) Use your generative_ai or existing agent tool to create a response.
+    # Keep behavior consistent with your existing agent: Socratic, ask-one-question, grade etc.
+    try:
+        # Prefer a direct "socratic" function if you already have one:
+        # ai_reply = agentic_socratic_reply(transcript, topic, persona)
+        # Else fallback to generative_ai with a prompt
+
+        prompt = f"""
+        You are a Socratic tutor (persona: {persona}) teaching the topic: {topic}.
+        The student's latest spoken response: "{transcript}"
+        Your goal:
+          1) Assess the answer for understanding and misconceptions.
+          2) Provide ONE concise feedback sentence + ONE follow-up Socratic question.
+          3) Keep style empathetic and short.
+        Return only a JSON with keys: {{ "reply": "...", "analysis": "..." }}
+        """
+
+        # generative_ai.generate_chat_response is a recommended helper (you may have it)
+        try:
+            # If you have a helper that returns structured json, use it
+            out = generative_ai.generate_chat_response(prompt)
+            if isinstance(out, dict) and "reply" in out:
+                ai_reply = out["reply"]
+                metadata = {"analysis": out.get("analysis", "")}
+            else:
+                # fallback: treat out as raw text
+                ai_reply = out if isinstance(out, str) else str(out)
+                metadata = {}
+        except Exception:
+            # fallback simple call
+            ai_reply = generative_ai.simple_reply(prompt)
+            metadata = {}
+
+        # 3) Optionally record conversational turn in DB
+        try:
+            import database_utils as db
+            db.log_conversation(
+                user_id=user_id,
+                session_id=session_id,
+                topic=topic,
+                user_text=transcript,
+                ai_text=ai_reply,
+                metadata=metadata
+            )
+        except Exception:
+            # logging failure should not block response
+            pass
+
+        return {"ai_reply": ai_reply, "metadata": metadata}
+    except Exception as e:
+        return {"ai_reply": "Sorry, I couldn't process that right now.", "metadata": {"error": str(e)}}
+
