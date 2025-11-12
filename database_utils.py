@@ -502,7 +502,83 @@ def get_voice_sessions_by_user(user_id):
         conn.close()
 
 
+# database_utils.py  <-- append near end
+
+def create_voice_session(user_id, topic):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS voice_sessions (
+                session_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                topic TEXT,
+                started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                metadata TEXT
+            );
+        """)
+        cursor.execute("""
+            INSERT INTO voice_sessions (user_id, topic) VALUES (?, ?)
+        """, (user_id, topic))
+        session_id = cursor.lastrowid
+
+        # create conversation table if not exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS voice_conversations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER,
+                role TEXT,
+                text TEXT,
+                metadata TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.commit()
+        return session_id
+    except Exception as e:
+        print("Error creating voice session:", e)
+        conn.rollback()
+        return None
+    finally:
+        conn.close()
+
+
+def log_conversation(user_id, session_id, topic, user_text, ai_text, metadata=None):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO voice_conversations (session_id, role, text, metadata)
+            VALUES (?, ?, ?, ?)
+        """, (session_id, "user", user_text, json.dumps(metadata or {})))
+        cursor.execute("""
+            INSERT INTO voice_conversations (session_id, role, text, metadata)
+            VALUES (?, ?, ?, ?)
+        """, (session_id, "assistant", ai_text, json.dumps(metadata or {})))
+        conn.commit()
+    except Exception as e:
+        print("Error logging conversation:", e)
+        conn.rollback()
+    finally:
+        conn.close()
+
+
+def end_voice_session(session_id, summary):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("UPDATE voice_sessions SET metadata = ? WHERE session_id = ?", (json.dumps(summary), session_id))
+        conn.commit()
+    except Exception as e:
+        print("Error ending voice session:", e)
+        conn.rollback()
+    finally:
+        conn.close()
+
+
 # Auto-create tables on first run
 if not os.path.exists(DB_PATH):
     print("Creating new SQLite database and tables...")
 create_tables()
+
+
