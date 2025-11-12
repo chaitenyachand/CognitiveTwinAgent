@@ -890,21 +890,21 @@ def show_quiz_results_page():
             
             # FIXED: Using markdown headers instead of expanders to avoid the key overlap
             st.markdown("---")
-            st.markdown("### 📚 Focused Review Summary")
+            st.markdown("### Focused Review Summary")
             if 'summary' in review_data:
                 st.markdown(review_data['summary'])
             else:
                 st.error("Could not load summary.")
             
             st.markdown("---")
-            st.markdown("### 🗺️ Focused Review Mind Map")
+            st.markdown("### Focused Review Mind Map")
             if 'mindmap' in review_data:
                 utils.render_markmap_html(review_data['mindmap'])
             else:
                 st.error("Could not load mind map.")
 
             st.markdown("---")
-            st.markdown("### 🃏 Focused Review Flashcards")
+            st.markdown("### Focused Review Flashcards")
             if 'flashcards' in review_data:
                 utils.render_flashcards(review_data['flashcards'])
             else:
@@ -963,7 +963,7 @@ def show_quiz_results_page():
 
 # --- General Q&A Page ---
 def show_general_qa_page():
-    st.title("🤖 General Q&A")
+    st.title("General Q&A")
     st.info("Ask any question, not related to a specific topic.")
     
     if "chat_history" not in st.session_state:
@@ -986,7 +986,7 @@ def show_general_qa_page():
 
 # --- AGORA VOICE TUTOR PAGE ---
 def show_agora_voice_twin():
-    st.title("🎙️ Agora Voice Tutor — Conversational Mode")
+    st.title(" Voice Tutor ")
     st.markdown(
         "Your Cognitive Twin is now voice-first. Speak naturally — the AI will guide you, question you, and teach you Socratically."
     )
@@ -1005,7 +1005,7 @@ def show_agora_voice_twin():
 
     # --- Step 1: Topic setup ---
     if not st.session_state.voice_session["topic"]:
-        st.info("👋 Let's get started. What subject would you like to learn today?")
+        st.info("Let's get started. What subject would you like to learn today?")
         topic_input = st.text_input("Say (or type) your topic:", key="voice_topic_input")
         if st.button("Start Voice Session", type="primary"):
             if not topic_input:
@@ -1015,7 +1015,7 @@ def show_agora_voice_twin():
                 user_id = st.session_state.get("user_id")
                 session_id = db.create_voice_session(user_id, topic_input)
                 st.session_state.voice_session["session_id"] = session_id
-                st.success(f"🎧 Starting new Agora voice session on **{topic_input}**")
+                st.success(f"Starting new Agora voice session on **{topic_input}**")
                 st.rerun()
 
     else:
@@ -1035,7 +1035,7 @@ def show_agora_voice_twin():
                 st.chat_message("assistant").write(text)
 
         # User input (simulated STT)
-        user_input = st.chat_input("🎤 Speak or type your answer:")
+        user_input = st.chat_input("Speak or type your answer:")
         if user_input:
             st.session_state.voice_session["conversation"].append({"role": "user", "text": user_input})
 
@@ -1071,7 +1071,7 @@ def show_agora_voice_twin():
             st.rerun()
 
         st.divider()
-        st.markdown("##### 🎚️ Voice Tutor Controls")
+        st.markdown("##### Voice Tutor Controls")
 
         persona_choice = st.radio(
             "Select AI Tone",
@@ -1088,14 +1088,14 @@ def show_agora_voice_twin():
                 "ended": str(datetime.now())
             }
             db.end_voice_session(session_id, summary)
-            st.success("Session ended and saved. ✅")
+            st.success("Session ended and saved.")
             st.session_state.page = "dashboard"
             st.session_state.voice_session = None
             st.rerun()
 
 # --- Focused Review Page ---
 def show_review_page():
-    st.title(f"🔍 Focused Review: {st.session_state.current_topic_name_to_review}")
+    st.title(f"Focused Review: {st.session_state.current_topic_name_to_review}")
     
     if "focused_review" not in st.session_state or st.session_state.focused_review is None:
         st.session_state.focused_review = agentic_ai.generate_focused_review_materials(
