@@ -1,49 +1,188 @@
-<!DOCTYPE html>
+<!-- agora_rtc.html -->
+<!doctype html>
 <html>
 <head>
-  <meta charset="UTF-8">
-  <title>Agora Conversational AI</title>
-  <script src="https://download.agora.io/sdk/release/AgoraRTC_N.js"></script>
+  <meta charset="utf-8" />
+  <title>Cognitive Twin</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <style>
-    body { font-family: Inter, sans-serif; background: #f8f9fa; padding: 20px; }
-    .container { background: white; border-radius: 16px; padding: 25px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
-    #conversation { height: 350px; overflow-y: auto; padding: 10px; border: 1px solid #ccc; border-radius: 12px; margin-top: 15px; }
-    .msg-user { color: #333; background: #e3f2fd; padding: 8px 12px; border-radius: 10px; margin: 5px 0; }
-    .msg-ai { color: #222; background: #ede7f6; padding: 8px 12px; border-radius: 10px; margin: 5px 0; }
-    button { background: linear-gradient(135deg,#667eea,#764ba2); color: white; border: none; border-radius: 8px; padding: 10px 20px; cursor: pointer; margin-top: 15px; }
-    button:hover { opacity: 0.9; }
+    body { font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; margin: 0; padding: 18px; background:#f7fafc; color:#1a202c;}
+    .panel { max-width:1000px; margin: 0 auto; background:white; padding:18px; border-radius:12px; box-shadow:0 6px 20px rgba(0,0,0,0.06);}
+    .transcript { min-height:80px; border:1px dashed #e2e8f0; padding:12px; border-radius:8px; margin-bottom:12px; }
+    .controls { display:flex; gap: 8px; align-items:center; margin-bottom:12px;}
+    button { padding:10px 14px; border-radius:10px; border:none; background:#5b6fd8; color:white; cursor:pointer;}
+    button.secondary { background:#4a5568; }
+    .assistant { margin-top: 12px; padding:12px; border-radius:8px; background: linear-gradient(90deg, #eef2ff, #f0f9ff); }
   </style>
 </head>
 <body>
-<div class="container">
-  <h2>🎙️ Agora Voice Tutor</h2>
-  <p>Speak naturally — your AI tutor will guide you in real time.</p>
+  <div class="panel">
+    <h2>Voice Tutor</h2>
+    <div class="controls">
+      <input id="channelName" placeholder="Channel name (eg. chaitenya_channel)" />
+      <input id="uid" placeholder="UID (optional, default 0)" style="width:120px"/>
+      <button id="joinBtn">Join Agora Channel</button>
+      <button id="leaveBtn" class="secondary" disabled>Leave</button>
+      <button id="startStt" class="secondary" disabled>Start STT</button>
+      <button id="stopStt" class="secondary" disabled>Stop STT</button>
+    </div>
 
-  <button id="startBtn">Start Session</button>
-  <div id="conversation"></div>
+    <div class="transcript" id="transcript">Transcript will appear here...</div>
 
-  <audio id="aiVoice" autoplay></audio>
-</div>
+    <div>
+      <h4>Assistant Reply</h4>
+      <div class="assistant" id="assistantReply">Assistant responses will appear here.</div>
+    </div>
 
-<script>
-  const APP_URL = window.location.origin;
-  let rtcClient, localTrack;
+    <div style="margin-top:12px;">
+      <small style="color:#64748b">Note: Browser speech recognition and speech synthesis are used as an initial implementation. Replace with Agora Conversational SDK for production-quality STT/TTS and streaming.</small>
+    </div>
+  </div>
 
-  async function startAgora() {
-    const channelName = "voice_twin_channel";
-    const res = await fetch(`${APP_URL.replace(/:[0-9]+/, ':8000')}/generate_token?channel_name=${channelName}&uid=123`);
-    const data = await res.json();
+  <!-- Agora Web SDK CDN -->
+  <script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.8.0.js"></script>
+  <script>
+    const tokenServer = "http://localhost:8000"; // token server location
+    let client = null;
+    let localTrack = null;
+    let joined = false;
+    let channel = null;
+    let uid = 0;
+    let recognition = null;
+    let sttActive = false;
 
-    rtcClient = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
-    await rtcClient.join(data.appId, channelName, data.token, data.uid);
+    document.getElementById("joinBtn").onclick = async () => {
+      channel = document.getElementById("channelName").value || "default_channel";
+      uid = document.getElementById("uid").value || "0";
 
-    localTrack = await AgoraRTC.createMicrophoneAudioTrack();
-    await rtcClient.publish(localTrack);
+      // Request token from token server
+      const tokenResp = await fetch(`${tokenServer}/token?channel=${channel}&uid=${uid}`);
+      const tokenJson = await tokenResp.json();
+      const APP_ID = tokenJson.app_id;
+      const TOKEN = tokenJson.token; // may be null in dev mode
 
-    document.getElementById("conversation").innerHTML += "<div class='msg-ai'>👋 AI: Hi there! What topic shall we start with today?</div>";
-  }
+      if(!APP_ID) {
+        alert("AGORA_APP_ID not returned by token server.");
+        return;
+      }
 
-  document.getElementById("startBtn").addEventListener("click", startAgora);
-</script>
+      // Initialize Agora client and join
+      client = AgoraRTC.createClient({ mode: "rtc", codec: "vp8" });
+      await client.join(APP_ID, channel, TOKEN || null, uid);
+
+      // create and publish local audio track
+      localTrack = await AgoraRTC.createMicrophoneAudioTrack();
+      await client.publish([localTrack]);
+      joined = true;
+
+      document.getElementById("joinBtn").disabled = true;
+      document.getElementById("leaveBtn").disabled = false;
+      document.getElementById("startStt").disabled = false;
+
+      appendLog("Joined Agora channel: " + channel);
+    };
+
+    document.getElementById("leaveBtn").onclick = async () => {
+      if (!client) return;
+      if (localTrack) {
+        localTrack.stop();
+        localTrack.close();
+      }
+      await client.leave();
+      client = null;
+      joined = false;
+      document.getElementById("joinBtn").disabled = false;
+      document.getElementById("leaveBtn").disabled = true;
+      document.getElementById("startStt").disabled = true;
+      document.getElementById("stopStt").disabled = true;
+      appendLog("Left Agora channel");
+    };
+
+    // Simple helper to show transcript/assistant text
+    function appendLog(text) {
+      const el = document.getElementById("transcript");
+      el.textContent = text;
+    }
+    function setAssistantText(text) {
+      document.getElementById("assistantReply").textContent = text;
+    }
+
+    // Setup Web Speech API STT (Chrome)
+    document.getElementById("startStt").onclick = () => {
+      if (!("webkitSpeechRecognition" in window) && !("SpeechRecognition" in window)) {
+        alert("SpeechRecognition not supported in this browser. Use Chrome.");
+        return;
+      }
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => {
+        sttActive = true;
+        document.getElementById("stopStt").disabled = false;
+        appendLog("Listening...");
+      };
+
+      recognition.onresult = async (event) => {
+        const transcript = event.results[0][0].transcript;
+        appendLog(transcript);
+        // Send transcript to backend for AI processing
+        const payload = {
+          user_id: null,
+          session_id: null,
+          topic: document.getElementById("channelName").value || "default_topic",
+          transcript: transcript,
+          persona: "empathetic"
+        };
+        try {
+          const resp = await fetch(tokenServer + "/process_transcript", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          const data = await resp.json();
+          const ai_reply = data.ai_reply || "Sorry, no response from server.";
+          setAssistantText(ai_reply);
+
+          // Play reply via browser TTS (replaceable by Agora TTS)
+          speakText(ai_reply);
+        } catch (e) {
+          setAssistantText("Error contacting server: " + e.toString());
+        }
+      };
+
+      recognition.onerror = (e) => {
+        appendLog("STT error: " + JSON.stringify(e));
+      };
+
+      recognition.onend = () => {
+        sttActive = false;
+        document.getElementById("stopStt").disabled = true;
+        appendLog("Stopped listening.");
+      };
+
+      recognition.start();
+    };
+
+    document.getElementById("stopStt").onclick = () => {
+      if (recognition && sttActive) recognition.stop();
+    };
+
+    // Browser TTS helper (fallback). Replace with Agora TTS SDK calls if available.
+    function speakText(text) {
+      if (!("speechSynthesis" in window)) {
+        console.warn("speechSynthesis not supported");
+        return;
+      }
+      const utt = new SpeechSynthesisUtterance(text);
+      utt.rate = 1;
+      utt.pitch = 1;
+      utt.lang = "en-US";
+      window.speechSynthesis.cancel(); // stop previous
+      window.speechSynthesis.speak(utt);
+    }
+  </script>
 </body>
 </html>
