@@ -979,7 +979,7 @@ def show_dashboard():
         else:
             st.markdown("""
             <div class="success-message">
-                🎉 You're doing great! No weak topics identified.<br>
+                You're doing great! No weak topics identified.<br>
                 Try starting a new topic to expand your knowledge.
             </div>
             """, unsafe_allow_html=True)
