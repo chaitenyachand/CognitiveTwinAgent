@@ -733,7 +733,7 @@ def show_onboarding_flow():
 # --- REBUILT LEARNING PAGE (AESTHETIC) ---
 def process_new_topic():
     """Generates and displays all learning materials in a tabbed view."""
-    st.title(f"Learning: {st.session_state.topic_name} 🧠")
+    st.title(f"Learning: {st.session_state.topic_name}")
     
     # --- CHECK IF WE'RE RETAKING A QUIZ (materials already exist) ---
     is_retake = (
@@ -745,7 +745,7 @@ def process_new_topic():
     # --- Generate all content ONLY if not retaking ---
     if not is_retake:
         if not st.session_state.current_summary:
-            with st.spinner("🧠 Generating detailed summary..."):
+            with st.spinner("Generating detailed summary..."):
                 st.session_state.current_summary = generative_ai.generate_summary(st.session_state.current_topic_text)
                 st.session_state.current_topic_id = db.create_topic(
                     st.session_state.user_id,
@@ -756,19 +756,19 @@ def process_new_topic():
                 st.session_state.current_topic_text = st.session_state.current_summary
         
         if not st.session_state.current_mindmap:
-            with st.spinner("🗺️ Generating mind map..."):
+            with st.spinner("Generating mind map..."):
                 st.session_state.current_mindmap = generative_ai.generate_mindmap_markdown(st.session_state.current_topic_text)
                 if st.session_state.current_mindmap:
                     db.save_mindmap(st.session_state.current_topic_id, st.session_state.current_mindmap)
 
         if not st.session_state.current_flashcards:
-            with st.spinner("🃏 Generating flashcards..."):
+            with st.spinner("Generating flashcards..."):
                 st.session_state.current_flashcards = generative_ai.generate_flashcards(st.session_state.current_topic_text)
                 if st.session_state.current_flashcards:
                     db.save_flashcards(st.session_state.current_topic_id, st.session_state.current_flashcards)
         
         if not st.session_state.current_formula_sheet:
-            with st.spinner("🧾 Generating formula sheet..."):
+            with st.spinner("Generating formula sheet..."):
                 st.session_state.current_formula_sheet = generative_ai.generate_formula_sheet(st.session_state.current_topic_text)
                 if st.session_state.current_formula_sheet:
                     db.save_formula_sheet(st.session_state.current_topic_id, st.session_state.current_formula_sheet)
@@ -779,7 +779,7 @@ def process_new_topic():
         
         # Show a message if retaking
         if is_retake and st.session_state.get("default_tab") == 5:
-            st.info("📝 Scroll down to the Quiz tab below to start your quiz!")
+            st.info("Scroll down to the Quiz tab below to start your quiz!")
         
         tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
             "Summary", 
@@ -816,7 +816,7 @@ def process_new_topic():
                 st.info("No distinct formulas or key equations were found for this topic.")
 
         with tab5:
-            st.subheader("❓ Ask a Question")
+            st.subheader("Ask a Question")
             st.info("Your questions will be answered based on the topic summary.")
             
             qa_style = st.radio("Response Style:", ("Simple", "Normal", "Detailed"), index=1, horizontal=True)
@@ -838,7 +838,7 @@ def process_new_topic():
                 st.rerun()
 
         with tab6:
-            st.subheader("✅ Test Your Knowledge")
+            st.subheader("Test Your Knowledge")
             
             # Generate quiz ONLY if it doesn't exist
             if "current_quiz" not in st.session_state or not st.session_state.current_quiz:
@@ -984,97 +984,56 @@ def show_general_qa_page():
         st.chat_message("assistant").write(response)
         st.rerun()
 
-# --- AGORA VOICE TUTOR PAGE ---
 def show_agora_voice_twin():
-    st.title(" Voice Tutor ")
+    st.title("Voice Tutor")
     st.markdown(
-        "Your Cognitive Twin is now voice-first. Speak naturally — the AI will guide you, question you, and teach you Socratically."
+        "Your Cognitive Twin is now **voice-first**. Speak naturally — the AI will listen, respond, and guide you Socratically in real time."
     )
 
-    # Initialize Agora conversational agent
-    handle_conversation = agentic_ai.get_agora_conversational_agent()
-
-    # Initialize session
+    # --- Initialize Session State ---
     if "voice_session" not in st.session_state:
         st.session_state.voice_session = {
-            "session_id": None,
             "topic": None,
-            "conversation": [],
+            "session_id": None,
             "persona": "empathetic"
         }
 
-    # --- Step 1: Topic setup ---
+    # --- Step 1: Topic Setup ---
     if not st.session_state.voice_session["topic"]:
-        st.info("Let's get started. What subject would you like to learn today?")
-        topic_input = st.text_input("Say (or type) your topic:", key="voice_topic_input")
+        st.info("Let's get started! What subject would you like to learn today?")
+        topic_input = st.text_input("Enter your topic:", key="voice_topic_input")
+
         if st.button("Start Voice Session", type="primary"):
             if not topic_input:
-                st.warning("Please enter a topic to begin.")
+                st.warning("Please enter a topic first.")
             else:
                 st.session_state.voice_session["topic"] = topic_input
                 user_id = st.session_state.get("user_id")
                 session_id = db.create_voice_session(user_id, topic_input)
                 st.session_state.voice_session["session_id"] = session_id
-                st.success(f"Starting new Agora voice session on **{topic_input}**")
+                st.success(f"Starting your live session on **{topic_input}**")
                 st.rerun()
-
     else:
-        # --- Step 2: Active conversation loop ---
+        # --- Step 2: Agora Live Interface ---
         topic = st.session_state.voice_session["topic"]
-        session_id = st.session_state.voice_session["session_id"]
-        st.markdown(f"### Topic: {topic}")
-        st.caption("Speak (or type) your responses — live voice will be enabled soon via Agora.")
+        st.markdown(f"### Topic: **{topic}**")
+        st.caption("You are now connected to your live Cognitive Twin Tutor")
 
-        # Display conversation history
-        for msg in st.session_state.voice_session["conversation"]:
-            role = msg["role"]
-            text = msg["text"]
-            if role == "user":
-                st.chat_message("user").write(text)
-            else:
-                st.chat_message("assistant").write(text)
+        try:
+            # Read Agora frontend
+            with open("agora_rtc.html", "r", encoding="utf-8") as f:
+                html_code = f.read()
 
-        # User input (simulated STT)
-        user_input = st.chat_input("Speak or type your answer:")
-        if user_input:
-            st.session_state.voice_session["conversation"].append({"role": "user", "text": user_input})
-
-            context = {
-                "topic": topic,
-                "current_concept": topic,
-                "persona": st.session_state.voice_session["persona"]
-            }
-
-            with st.spinner("AI is thinking..."):
-                result = handle_conversation(user_input, context)
-                ai_reply = result["ai_reply"]
-                metadata = result["metadata"]
-
-            # Add AI response to memory
-            st.session_state.voice_session["conversation"].append({"role": "assistant", "text": ai_reply})
-            st.chat_message("assistant").write(ai_reply)
-
-            # Log interaction
-            try:
-                db.log_conversation(
-                    st.session_state.user_id,
-                    session_id,
-                    topic,
-                    user_input,
-                    ai_reply,
-                    metadata
-                )
-            except Exception as e:
-                st.error(f"Logging failed: {e}")
-
-            time.sleep(0.2)
-            st.rerun()
+            # Embed HTML
+            st.components.v1.html(html_code, height=700, scrolling=False)
+        except FileNotFoundError:
+            st.error("'agora_rtc.html' not found. Please ensure it exists in the project directory.")
 
         st.divider()
         st.markdown("##### Voice Tutor Controls")
 
         persona_choice = st.radio(
-            "Select AI Tone",
+            "Select AI Tone:",
             ["empathetic", "encouraging", "authoritative", "neutral"],
             index=0,
             horizontal=True,
@@ -1083,15 +1042,18 @@ def show_agora_voice_twin():
         st.session_state.voice_session["persona"] = persona_choice
 
         if st.button("End Voice Session", type="secondary"):
-            summary = {
-                "turns": len(st.session_state.voice_session["conversation"]),
-                "ended": str(datetime.now())
-            }
-            db.end_voice_session(session_id, summary)
-            st.success("Session ended and saved.")
-            st.session_state.page = "dashboard"
+            session_id = st.session_state.voice_session.get("session_id")
+            if session_id:
+                summary = {
+                    "ended": str(datetime.now()),
+                    "persona": st.session_state.voice_session["persona"]
+                }
+                db.end_voice_session(session_id, summary)
+            st.success("🎤 Voice session ended and saved.")
             st.session_state.voice_session = None
+            st.session_state.page = "dashboard"
             st.rerun()
+
 
 # --- Focused Review Page ---
 def show_review_page():
