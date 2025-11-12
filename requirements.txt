@@ -12,3 +12,5 @@ easyocr
 bcrypt
 argon2-cffi
 agora-token-builder
+fastapi
+uvicorn
