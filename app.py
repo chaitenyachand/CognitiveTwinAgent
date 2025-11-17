@@ -984,75 +984,6 @@ def show_general_qa_page():
         st.chat_message("assistant").write(response)
         st.rerun()
 
-def show_agora_voice_twin():
-    st.title("Voice Tutor")
-    st.markdown(
-        "Your Cognitive Twin is now **voice-first**. Speak naturally — the AI will listen, respond, and guide you Socratically in real time."
-    )
-
-    # --- Initialize Session State ---
-    if "voice_session" not in st.session_state:
-        st.session_state.voice_session = {
-            "topic": None,
-            "session_id": None,
-            "persona": "empathetic"
-        }
-
-    # --- Step 1: Topic Setup ---
-    if not st.session_state.voice_session["topic"]:
-        st.info("Let's get started! What subject would you like to learn today?")
-        topic_input = st.text_input("Enter your topic:", key="voice_topic_input")
-
-        if st.button("Start Voice Session", type="primary"):
-            if not topic_input:
-                st.warning("Please enter a topic first.")
-            else:
-                st.session_state.voice_session["topic"] = topic_input
-                user_id = st.session_state.get("user_id")
-                session_id = db.create_voice_session(user_id, topic_input)
-                st.session_state.voice_session["session_id"] = session_id
-                st.success(f"Starting your live session on **{topic_input}**")
-                st.rerun()
-    else:
-        # --- Step 2: Agora Live Interface ---
-        topic = st.session_state.voice_session["topic"]
-        st.markdown(f"### Topic: **{topic}**")
-        st.caption("You are now connected to your live Cognitive Twin Tutor")
-
-        try:
-            # Read Agora frontend
-            with open("agora_rtc.html", "r", encoding="utf-8") as f:
-                html_code = f.read()
-
-            # Embed HTML
-            st.components.v1.html(html_code, height=700, scrolling=False)
-        except FileNotFoundError:
-            st.error("'agora_rtc.html' not found. Please ensure it exists in the project directory.")
-
-        st.divider()
-        st.markdown("##### Voice Tutor Controls")
-
-        persona_choice = st.radio(
-            "Select AI Tone:",
-            ["empathetic", "encouraging", "authoritative", "neutral"],
-            index=0,
-            horizontal=True,
-            key="persona_select"
-        )
-        st.session_state.voice_session["persona"] = persona_choice
-
-        if st.button("End Voice Session", type="secondary"):
-            session_id = st.session_state.voice_session.get("session_id")
-            if session_id:
-                summary = {
-                    "ended": str(datetime.now()),
-                    "persona": st.session_state.voice_session["persona"]
-                }
-                db.end_voice_session(session_id, summary)
-            st.success("🎤 Voice session ended and saved.")
-            st.session_state.voice_session = None
-            st.session_state.page = "dashboard"
-            st.rerun()
 
 
 # --- Focused Review Page ---
@@ -1129,9 +1060,7 @@ def main():
             if st.button("Ask a General Question", on_click=on_page_change, use_container_width=True, key="qa_btn"):
                 st.session_state.page = "general_qa"
                 st.rerun()
-            if st.button("Voice Tutor (Agora AI)", use_container_width=True, key="voice_btn"):
-                st.session_state.page = "voice_twin"
-                st.rerun()
+            
             st.divider()
             
             logout_clicked = st.button("Logout", use_container_width=True, key="logout_btn")
@@ -1145,8 +1074,6 @@ def main():
             dashboard.show_dashboard()
         elif st.session_state.page == "review_topic":
             show_review_page()
-        elif st.session_state.page == "voice_twin":
-            show_agora_voice_twin()
         elif st.session_state.page == "general_qa":
             show_general_qa_page()
         elif st.session_state.page == "onboarding_start":
